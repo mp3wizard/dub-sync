@@ -1,17 +1,18 @@
 ---
 name: dub-sync
 description: >-
-  Time-align a foreign-language DUB audio track from one rip onto a DIFFERENT
-  video release, then mux both as selectable, scene-synced audio tracks in one MKV.
-  Corrects framerate/PAL speedup (25↔23.976 fps) AND non-linear "staircase" drift
-  from commercial-break cuts by re-aligning each silence-bounded chunk; cross-language
-  safe (aligns on shared music & effects, not dialog). Use when the user wants to:
-  sync/merge a dub with an original-language video, add a dub as a second audio track,
-  combine two-language rips of the same title, or fix a dub that starts in sync then
-  drifts partway. NOT for a simple constant delay (use mkvmerge/-itsoffset) or subtitle
-  sync. Thai triggers: รวมเสียงไทย, sync/ซิงค์เสียงพากย์, ซิงค์เสียงไทยกับไฟล์อังกฤษ,
-  เอาเสียงไทยมาใส่, ทำไฟล์สองภาษา, เสียงพากย์ไม่ตรงฉาก, เสียงไทยมาช้า/เร็ว.
-  Needs ffmpeg + python/numpy (Windows-friendly).
+  Time-align a foreign-language DUB audio track from one rip onto a DIFFERENT video
+  release, then mux both as selectable, scene-synced tracks in one MKV. Corrects
+  framerate/PAL speedup (25↔23.976 fps) AND non-linear "staircase" drift from
+  commercial-break cuts; cross-language safe (aligns on shared music & effects, not
+  dialog). Use when the user wants to: sync/merge a dub with an original-language video,
+  add a dub as a second audio track, combine two-language rips of the same title, fix a
+  dub that starts in sync then drifts partway, or re-fix a previously-synced dub still
+  off from some minute on or with a silent gap/dropout partway (reference has speech but
+  the dub goes silent). NOT for a simple constant delay (use mkvmerge/-itsoffset) or
+  subtitle sync. Thai triggers: รวมเสียงไทย, ซิงค์เสียงพากย์, เอาเสียงไทยมาใส่,
+  ทำไฟล์สองภาษา, เสียงพากย์ไม่ตรงฉาก, เสียงไทยมาช้า/เร็ว, เสียงหลุดซิงค์ตั้งแต่นาที…,
+  เสียงพากย์เงียบหายเป็นช่วง. Needs ffmpeg + python/numpy.
 ---
 
 # dub-sync — align a dub track onto a different video release
@@ -103,6 +104,35 @@ path; run in the background (each episode = several ffmpeg decodes). Collect the
 When done, verify track layout on every output, then (if asked) back up originals before
 replacing them.
 
+## Hard episodes (weak M&E): the rescue toolkit
+
+Some rips defeat the silence-anchored chunk aligner: a low-bitrate TV rip whose music &
+effects were remixed/compressed shares too little with the original, so per-chunk correlation
+runs ~0.1–0.3 and the aligner invents huge false ad-break gaps that even `--report-only`
+"PASS"es. The signature: `[verify]` shows large residuals flagged gap/uncertain across a
+whole half, and/or a chunk offset that jumps tens of seconds. Don't ship it, and don't jump
+to manual Audacity — run the toolkit in `scripts/`:
+
+1. **`robust_offset.py --eng ORIG --thai DUB`** — FFT global base offset + a sliding window
+   with a *narrow constrained* search around a running estimate. The narrow search can't latch
+   a far spurious peak, so on weak M&E you get the true gentle staircase (e.g. +1.5 → +11.5s)
+   instead of the aligner's chaotic +5→+44s. Add `--out thai_synced.flac` to also BUILD the
+   conformed+placed dub audio from the detected staircase (no gaps but the real small ones).
+2. **Mux** that FLAC as the dub track (video + dub[default] + original), then
+   **`dense_verify.py --eng ORIG --built OUT.mkv`** — correlates the built dub vs the reference
+   every 60s across the WHOLE timeline and prints a coverage-aware verdict (CHECK when too little
+   is verifiable → spot-check by ear; FAIL on any reliably-misaligned window). This is the honest
+   check the built-in verify isn't.
+3. **`gap_scan.py --eng ORIG --built OUT.mkv`** — 1s-resolution RMS scan for spots where the
+   reference has speech but the dub is silent. These are real DUB-SOURCE dropouts (a TV rip fades
+   ~2–3s at commercial junctions, eating the dubbed line) — inherent holes, not alignment errors.
+   The embedded subtitle covers the meaning; optionally fill them:
+4. **`fill_gap.py --src thai_synced.flac --out thai_filled.flac --cut-start S --cut-end E --resync N`**
+   — deletes the silent dropout, pulls the post-gap dialogue up to fill it, then re-syncs with
+   `atempo` (pitch-preserved) over `--resync` seconds so from there on the audio matches the
+   un-filled build exactly. Pick `--resync` so it re-syncs at the moment the user says should be
+   in sync. Always have the user spot-check the filled second AND the re-sync point.
+
 ## Gotchas (each is a rule + the why it cost to learn)
 - **Correlate the energy envelope, never dialog.** Subtitle-style shifters (Sushi.Net etc.)
   match dialog, which differs between dub and original → they silently no-op (output = copy).
@@ -118,7 +148,16 @@ replacing them.
 - **Don't re-add automated "self-heal."** Re-shifting a region by its verify residual looks
   tempting, but on weak-correlation episodes the verify itself is unreliable — it silently
   degrades a good region while the median only *looks* better. Rare hard episodes (~1 in 45)
-  need manual Audacity sync instead.
+  don't need manual Audacity anymore — see **Hard episodes** below for the rescue toolkit.
+- **The built-in `[verify] PASS` is NOT trustworthy on weak-M&E episodes.** It samples only
+  silence-bounded "real content" points (often <10, clustered in one half) and flags the rest
+  gap/uncertain. It once printed `PASS` (median 0.02s) on a build that inserted a bogus **28s**
+  gap and was 28s off for half the episode — the broken half simply wasn't in the sample. On any
+  low-corr episode, ignore the bare verdict and run `scripts/dense_verify.py` on the OUTPUT.
+- **A single offset step of tens of seconds is almost always spurious.** A real ad-cut removes a
+  few seconds; a +33s jump with no equally-long real silence to justify it is the chunk aligner
+  latching a far correlation peak on weak M&E. `robust_offset.py` (narrow constrained search)
+  won't make that mistake — it recovers the true gentle staircase.
 - **Seed the global offset from several early windows (median), not one wide search.** The start
   offset is always small; a lone wide seed can latch a spurious far peak on a heavily re-dubbed
   episode and throw off the whole track.

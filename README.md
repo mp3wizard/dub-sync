@@ -31,6 +31,33 @@ It corrects two problems at once:
 
 ---
 
+## Flow
+
+The pipeline runs in four phases. Full interactive diagram:
+**[FigJam flow board ↗](https://www.figma.com/board/4HR7zNSUdmkedtbr52UDuI/Claude-skill--dub-sync)**
+
+```
+1 · ANALYZE & CONFORM
+   Inputs (reference video + dub) → Probe both (ffprobe)
+   → Conform dub speed to reference fps → Extract energy envelopes
+
+2 · ALIGN DUB TO REFERENCE
+   Detect silences, cut into chunks → Per-chunk offset (M&E cross-correlation)
+   → Clean offsets (median smooth) → Build synced track
+
+3 · VERIFY (QA gate)
+   Verify: re-correlate built track vs reference → Median residual < 0.4s?
+   ├─ No (OK/CHECK) → Adjust (lower silence-db / re-check fps) ↺ back to align
+   └─ Yes ↓
+
+4 · ENCODE & DELIVER
+   Report-only mode?
+   ├─ Yes → print residual + offset tables, stop
+   └─ No  → Encode dub to FLAC → Mux MKV → Output: one dual-language MKV
+```
+
+---
+
 ## Requirements
 
 - **`ffmpeg` + `ffprobe`** on your `PATH`
@@ -131,6 +158,40 @@ Big residuals that appear **only at ad-break gap points** are flagged and expect
 3. **Dry run** `--report-only` on **one** episode → expect `PASS` and a near-flat residual profile.
 4. **Build** it, then spot-check in VLC (mid-episode + just after an ad break; lips vs dub).
 5. **Batch the rest** only after one is confirmed — and **re-detect every episode** (durations and ad-break positions differ; never reuse another episode's offsets).
+
+---
+
+## Hard episodes — rescue toolkit
+
+`dubsync.py` handles the common case. On a **weak-correlation episode** (heavily re-dubbed, sparse shared music & effects), its silence-anchored chunk aligner can latch onto a spurious far peak and *invent* a huge false ad-break gap — and worse, its own sparse `[verify]` can print `PASS` while half the track is badly misaligned.
+
+> **Why this exists:** a real "Madam Secretary" S01E09 build reported `PASS` while a chunk aligner had invented a **28s silent gap** from a bad offset jump (`+33s` where the truth was `+4.8s`). Manual FFT re-analysis found the real gentle staircase (`+1.5 → +11.5s`), plus a genuine ~3s dub-source dropout (TV-rip ad-fade). The four scripts below now handle that scenario without manual Audacity work.
+
+Run these when an episode looks wrong or you don't trust a bare `PASS`:
+
+| Script | What it does |
+|--------|--------------|
+| **`robust_offset.py`** | Rescue aligner for hard episodes. FFT global offset + a **narrow constrained** sliding search that *cannot* jump to a far spurious peak — recovers the true gentle staircase instead of noise. Prints the curve, or builds the corrected audio with `--out`. |
+| **`dense_verify.py`** | The honest verification. Correlates the **built** track against the reference every 60s across the *whole* timeline with a coverage-aware verdict — catches the misaligned half that `dubsync.py`'s sparse verify misses. Trust this over a bare `[verify] PASS`. |
+| **`gap_scan.py`** | Finds genuine **dub-source dropouts** at 1s resolution (reference has speech, built dub is silent) — TV rips fade ~2–3s at ad junctions and eat a line. These are source holes, not alignment errors. |
+| **`fill_gap.py`** | Fills a short dropout: pulls post-gap dialogue up into the hole, then re-syncs with pitch-preserved `atempo` over a chosen window so everything past it still matches. |
+
+```bash
+# 1. Re-align a hard episode with the constrained search
+python scripts/robust_offset.py --eng ORIGINAL.mp4 --thai DUB.mp4 --out thai_synced.flac
+
+# 2. Verify honestly across the whole timeline (never trust a sparse PASS on these)
+python scripts/dense_verify.py --eng ORIGINAL.mp4 --built OUT.mkv --built-stream 0:a:0
+
+# 3. Scan for a real dub dropout (whole episode, or a suspect region)
+python scripts/gap_scan.py --eng ORIGINAL.mp4 --built OUT.mkv --from 890 --to 940
+
+# 4. Fill a ~3s dropout found at 15:10, re-syncing over the next 27s
+python scripts/fill_gap.py --src thai_synced.flac --out thai_filled.flac \
+    --cut-start 910 --cut-end 913 --resync 27
+```
+
+Rule of thumb: `dubsync.py` first; if `dense_verify.py` shows a misaligned stretch, rebuild with `robust_offset.py`; if a line is missing from the dub, `gap_scan.py` → `fill_gap.py`.
 
 ---
 
