@@ -107,8 +107,12 @@ def main():
         for s0,s1,o in segs:
             a0=int(s0*48000); a1=min(int(s1*48000),len(c))
             if a0>=len(c): break
-            src_=c[a0:a1]; d0=int((s0+o)*48000); d1=min(d0+len(src_),len(out))
-            out[d0:d1]=src_[:d1-d0]
+            src_=c[a0:a1]; d0=int((s0+o)*48000)
+            if d0>=len(out) or d0+len(src_)<=0: continue  # segment placed entirely outside the output buffer
+            d0c=max(0,d0); d1=min(d0+len(src_),len(out))
+            n=d1-d0c
+            if n<=0: continue
+            out[d0c:d1]=src_[d0c-d0:d0c-d0+n]
         p=subprocess.Popen(["ffmpeg","-y","-v","error","-f","s16le","-ar","48000","-ac","2",
             "-i","-","-c:a","flac",a.out],stdin=subprocess.PIPE)
         p.communicate(out.tobytes())

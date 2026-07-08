@@ -99,10 +99,12 @@ with `AskUserQuestion` (one question each; offer any paths already mentioned as 
 ## Batch pattern (per season)
 Loop episodes, matching `S0#E##` original ↔ dub, writing `…TH-EN.mkv` to the resolved output
 path; run in the background (each episode = several ffmpeg decodes). Collect the per-episode
-`[verify]` verdict. For a straggler (`OK`/`CHECK`): re-run once with a lower `--silence-db`
-(loud mix) or re-check fps before flagging it for manual sync — don't ship a coarse result.
-When done, verify track layout on every output, then (if asked) back up originals before
-replacing them.
+`[verify]` verdict — but treat it as a **first-pass smell test only**: it is not trustworthy on
+weak-M&E episodes (see *Hard episodes*). Gate the real accept/reject on `dense_verify.py` run on the
+OUTPUT, where **only a FAIL is a defect; a CHECK with no misaligned window is fine — don't rescue
+it.** For a straggler, re-run once with a lower `--silence-db` (loud mix) or re-check fps before
+flagging it for manual sync — don't ship a coarse result. When done, verify track layout on every
+output, then (if asked) back up originals before replacing them.
 
 ## Hard episodes (weak M&E): the rescue toolkit
 
@@ -123,6 +125,21 @@ to manual Audacity — run the toolkit in `scripts/`:
    every 60s across the WHOLE timeline and prints a coverage-aware verdict (CHECK when too little
    is verifiable → spot-check by ear; FAIL on any reliably-misaligned window). This is the honest
    check the built-in verify isn't.
+
+   **CHECK is not FAIL — don't rescue a CHECK.** `dense_verify` gives three verdicts. **FAIL** means
+   it found a window with correlation ≥0.35 AND |residual| >0.5s — a *proven* misalignment; that,
+   and only that, is the trigger for the `robust_offset` rescue below. A **CHECK** with an empty
+   "misaligned" list is *not* evidence of a sync problem — it only means too little of the episode
+   correlated strongly enough to verify (weak M&E), which is a property of the *source*, not proof
+   of drift. Over a 22-episode batch, treating every CHECK as broken means re-processing ~15 fine
+   episodes for nothing. Accept `PASS` and `CHECK-with-no-bad`; rescue only a true `FAIL`.
+
+   **A whole batch reading CHECK/low-corr usually means provenance, not per-episode breakage.** In
+   one season the pilot episode (a 352p broadcast TV rip) hit ~100% coverage and 0.9+ correlation,
+   while every other episode (1080p, from a different — likely OTT/streaming — dub source) sat at
+   7–36% coverage. That gap is the two dub *sources* sharing different amounts of M&E with the
+   reference release, not ~20 broken syncs. When a whole batch correlates weakly but the pilot
+   didn't, suspect the source lineage before you suspect the aligner.
 3. **`gap_scan.py --eng ORIG --built OUT.mkv`** — 1s-resolution RMS scan for spots where the
    reference has speech but the dub is silent. These are real DUB-SOURCE dropouts (a TV rip fades
    ~2–3s at commercial junctions, eating the dubbed line) — inherent holes, not alignment errors.
@@ -169,8 +186,31 @@ to manual Audacity — run the toolkit in `scripts/`:
   broken file — re-running the episode usually succeeds.
 - **WinGet ffmpeg is a shim/symlink** (fine as-is). Real bin:
   `…\WinGet\Packages\Gyan.FFmpeg_*\ffmpeg-*-full_build\bin`.
+- **Call ffmpeg/ffprobe (and the python tools that spawn them) with native `C:\…` paths, never
+  MSYS `/c/…`/`/w/…` paths.** From Git-Bash on Windows, MSYS's argv path-translation is unreliable
+  for native exes on paths with spaces/brackets — it can hand ffmpeg a path it can't open, which
+  fails *silently* in a way that looks like a data problem. `dense_verify.py` once produced a
+  perfectly flat, all-identical residual/corr table (which reads like a real gross misalignment)
+  purely because it was given `/w/Some Show [1080p]/…mp4` and ffmpeg opened nothing. MSYS built-ins
+  (`ls`, `cmp`, `cat`) handle `/c/`, `/w/` fine; ffmpeg/ffprobe/python-spawned-ffmpeg do not — quote
+  the Windows form. A degenerate constant verify output = suspect the path before the sync.
+- **Verify against the SAME reference file the build used** (the `--eng` source release), not a
+  different release of the episode. `dense_verify` cross-correlates envelopes; comparing the dub
+  against a *different* cut of the same episode invents misalignment that isn't there.
+- **`robust_offset.py --out` used to crash on a segment placed past the buffer end** (`ValueError:
+  could not broadcast input array … into shape (0,2)`) — hit on almost every weak-M&E episode.
+  Fixed to clamp the destination/source slice. If you see that traceback, update the script.
+- **Windows source files are often read-only** — deleting/overwriting an original after building
+  throws `PermissionError: Access is denied`. Clear the flag first (`os.chmod(path, stat.S_IWRITE)`
+  / `attrib -r`) before removing. A crash *after* the new file was already written+verified means
+  only the cleanup failed, not the build — re-check the output exists and is valid before redoing it.
+- **Transient `0xC0000142` failures re-run clean.** A single episode aborting mid-batch with that
+  Windows loader error is not a "hard episode" — just re-run it (the batch is idempotent, skipping
+  episodes whose `-TH-EN.mkv` already exists). It only earns the rescue toolkit if it *fails
+  verification*, not if it merely errored once.
 - **Prove sync by re-correlating** the built track against the reference; near-zero residual on
   real content (not at gaps) is the confirmation.
 
 ## Related
-Memory `[[madam-secretary-thai-sync]]` — originating case + drive layout.
+Pairs with the **`subtitle-th`** skill (translate + gender-check + mux subtitle tracks) to produce a
+dual-audio + dual-subtitle file from a foreign dub rip and an original-language release.

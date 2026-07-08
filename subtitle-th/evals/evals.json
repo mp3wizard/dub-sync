@@ -1,0 +1,19 @@
+{
+  "skill_name": "subtitle-th",
+  "evals": [
+    {
+      "id": 0,
+      "name": "full-pipeline",
+      "prompt": "I have an English subtitle file and a video. Make a Thai subtitle translation from the English, then merge BOTH the Thai and English subtitles into the video as selectable tracks with Thai as the default. English subtitle: <WS>/inputs/scene_en.srt . Video: <WS>/inputs/scene.mp4 . Save the Thai .srt and the final muxed .mkv into the output directory.",
+      "expected_output": "A Thai .srt whose first-person pronouns/particles match each speaker's gender (Elaine/Sophie/Dr.Voss female; Marcus male), structurally valid and same cue count as source; plus a muxed .mkv with a Thai subtitle track (default, lang=tha) and an English subtitle track (lang=eng).",
+      "files": ["inputs/scene_en.srt", "inputs/scene.mp4"]
+    },
+    {
+      "id": 1,
+      "name": "gender-fix",
+      "prompt": "This Thai subtitle was translated from English but every character uses male first-person pronouns/particles (ผม/ครับ), which is wrong for the female speakers. Correct the Thai so each speaker's pronouns and polite particles match their gender, using the English source to identify who speaks each line. Keep the timestamps and cue count identical. Thai subtitle to fix: <WS>/inputs/scene_th_wrong.srt . English source: <WS>/inputs/scene_en.srt . Save the corrected Thai .srt into the output directory.",
+      "expected_output": "A corrected Thai .srt where female speakers (Elaine, Sophie, Dr. Voss) use female forms (ฉัน/ดิฉัน/หนู/แม่ + ค่ะ/คะ) and Marcus stays male (ผม + ครับ); identical timestamps and 16 cues.",
+      "files": ["inputs/scene_th_wrong.srt", "inputs/scene_en.srt"]
+    }
+  ]
+}
