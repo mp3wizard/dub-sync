@@ -29,8 +29,8 @@ def probe_has_audio(video):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", required=True)
-    ap.add_argument("--thai", required=True)
-    ap.add_argument("--eng", default=None)
+    ap.add_argument("--thai", "--th", dest="thai", required=True)
+    ap.add_argument("--eng", "--en", dest="eng", default=None)
     ap.add_argument("--out", required=True)
     ap.add_argument("--default", choices=["thai", "eng", "none"], default="thai",
                     help="which subtitle track carries the default disposition")

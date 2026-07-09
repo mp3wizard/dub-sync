@@ -32,6 +32,22 @@ reason to exist is to get that right and prove it, then mux cleanly.
 
 Do them in order. Skipping step 3 is the mistake this skill exists to prevent.
 
+## Model & effort per step (settled over a full season + a mixed-model trial)
+
+**Every step here runs on Sonnet — Opus is not used anywhere in this pipeline.** The right lever
+is *effort within Sonnet*, not model tier: a mixed-model trial (Opus/medium on the gender pass)
+gave **no measurable quality gain** over Sonnet and cost ~4× more. The pick per step:
+
+| Step | Model / effort | Why |
+|---|---|---|
+| 2. Translate (per chunk) | **Sonnet / medium** | Mechanical. `high` triggers copyright self-refusals; `low` bakes in more gender errors for step 3 to clean up. Medium is the proven-stable default. |
+| — Merge chunks | **Sonnet / low** | Runs a deterministic script and reads back the asserted count. No reasoning. |
+| 3. Gender-verify | **Sonnet / high** | The one judgment-heavy step — wants thoroughness/skepticism, which **`high` effort buys better than a bigger model tier does**. `high` is safe here (unlike on translate); this is a *checking* task, not a *generating* one, so it doesn't self-refuse. |
+| 4. Validate | **Sonnet / low** | Runs `validate_srt.py` and reads the verdict. Escalate to `medium` *only* for the rare round where it must fix a structural defect. |
+
+The general rule this table encodes: **don't reach for Opus, and don't raise effort on mechanical
+steps** — spend the effort budget only on the step that actually reasons (gender-verify).
+
 ## 1. Get the English subtitle
 
 - **Sidecar file:** scene releases often ship subs in a `Subs/<release-name>/` folder next to
@@ -83,6 +99,14 @@ structured-output schema proves the reply had the right *shape*, not that the fi
 - **Model/effort:** translation is mechanical — **Sonnet at `medium` effort** is the right default
   per chunk; reserve higher tiers for the gender pass (step 3), which is the part that needs
   judgment. Using a top-tier model here costs ~2–3× for no quality gain on straight translation.
+  **Raising the *reasoning effort* (not just the model tier) on the translate step can actively
+  hurt reliability**, not just cost more: a same-day pilot re-ran identical chunk prompts at
+  `high` instead of `medium` and **3 of 9 chunks self-refused**, reasoning that translating ~120
+  cues of dialogue was "reproducing a derivative work of copyrighted script" — a decline pattern
+  that never once occurred across a full prior season translated entirely at `medium`. Re-running
+  the exact same 3 prompts at `medium` fixed it 3/3. The extra deliberation `high` buys doesn't
+  help a mechanical task — it just gives the model more room to talk itself into an overcautious
+  refusal. Don't reach for higher effort to fix a translate reliability problem; it can be the cause.
 
 If a workflow engine is available, the robust shape is: `split (script) → translate chunks in
 parallel (Sonnet/medium, each self-verifying its count) → join (script, asserts total) → gender
@@ -107,6 +131,12 @@ whole chunk:
 
 ## 3. Gender-verify (the crux)
 
+**Run this step on Sonnet at `high` effort** — it is the only step that needs judgment (deciding
+who speaks each cue and picking the right gendered form), and `high` effort buys that thoroughness
+more cost-effectively than moving to Opus (which showed no quality edge here). Unlike the translate
+step, `high` is safe on a *checking* task — it doesn't provoke the copyright self-refusal that
+`high` causes on *generation*.
+
 Read `references/thai-gender-guide.md` and apply it. In short:
 
 - Build a **character → gender map** for the show once, from the English speaker labels (a quick
@@ -119,6 +149,16 @@ Read `references/thai-gender-guide.md` and apply it. In short:
   child-to-elder หนู vs parent-as-แม่/พ่อ). Fix each half of a two-speaker cue by its own speaker.
 - **Change only the gendered pronoun and particle** — never timestamps, indices, other wording,
   or bracketed cues.
+- **Fix all flagged cues in as few edits as possible — never one `Edit` call per cue.** Read the
+  whole file, collect every fix into a list of `{cue, find, replace}`, then apply them all in one
+  pass with `python scripts/apply_gender_fixes.py TH.srt --fixes-json '[...]'` (it applies every
+  fix in a single deterministic pass and safety-checks that each `find` occurs exactly once per
+  cue, refusing to write anything if not). A verify agent that called `Edit` individually 45 times
+  (80 assistant turns total) burned **11M+ tokens on a 45-fix pass** — ~4x the cost of an
+  equivalent Sonnet run that batched its fixes — because each turn re-sends the whole accumulated
+  conversation as fresh (uncached) input. The blowup is turn-count-driven, not model-driven: it
+  gets worse, not better, on a higher-cost model/effort, so this matters most exactly when you've
+  reached for Opus or high effort here.
 
 This works best as a **dedicated second pass**, separate from translation — checking gender while
 also rendering meaning splits attention and lets errors through. When subagents are available, an
@@ -142,6 +182,7 @@ until clean. (These are exactly the bugs that slipped through when this workflow
 ```
 python scripts/mux_subs.py --video IN.mp4 --thai TH.srt --eng EN.srt --out OUT.mkv
 ```
+(`--th`/`--en` also work as explicit aliases for `--thai`/`--eng`.)
 This copies the original video+audio untouched (`-c copy`, fast, no re-encode), adds the Thai and
 English subs as SRT tracks, tags them `tha`/`eng`, and marks **Thai as default**. Output is MKV.
 Options: `--default eng|none`, `--thai-title`, `--eng-title "English (SDH)"`, omit `--eng` for

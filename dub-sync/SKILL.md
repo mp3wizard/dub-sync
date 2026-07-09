@@ -150,6 +150,32 @@ to manual Audacity — run the toolkit in `scripts/`:
    un-filled build exactly. Pick `--resync` so it re-syncs at the moment the user says should be
    in sync. Always have the user spot-check the filled second AND the re-sync point.
 
+## Deciding automatically: model, effort, and the ship/hold threshold
+
+The audio pipeline itself spends **zero LLM tokens** (ffmpeg/numpy only). The only place a model is
+involved is *reading the verdicts above and deciding what to do* — and that decision is meant to run
+**unattended, without pinging a human**. Two things make that safe:
+
+- **Model/effort for the decision: Sonnet / medium.** Interpreting `dense_verify`/`robust_offset`/
+  `gap_scan` is applying the fixed rules on this page (FAIL = corr ≥0.35 AND |resid| >0.5s; a CHECK
+  with no bad window passes; a lone tens-of-seconds jump is spurious; `robust_offset`'s narrow search
+  is the tie-breaker). That is rule-application, not open reasoning — Sonnet/medium does it reliably.
+  A trial that used Opus/high here added nothing: it only re-confirmed what the rules already said.
+  **Don't escalate the model to feel safer** — a bigger model gives a more *confident* answer to a
+  question the rules already answer, not a more *correct* one.
+- **The one genuinely borderline case is a value judgment, so encode it as a number — don't delegate
+  it to a bigger model.** When a build has a *real, un-rescuable* dropout (robust_offset can't clear
+  it, `gap_scan` confirms a genuine dub-source hole), "is this good enough to ship?" has no
+  technically-correct answer — it's a quality bar. Resolve it with a fixed threshold instead of
+  human judgment or model horsepower:
+  - **Total un-rescuable dropout < ~8s, not concentrated in a dialogue-critical stretch → ship
+    automatically.** The Thai subtitle covers the meaning across a short hole (established policy).
+  - **≥ ~8s un-rescuable, OR a FAIL that robust_offset can't clear → HOLD: do not deploy.** Leave the
+    built `-TH-EN.mkv` in the review dir, record the flagged timestamps in the episode's
+    `_verify/E##.json`, and move on. These accumulate for a later batch review rather than shipping a
+    visibly-broken sync or blocking the run. (Raising effort/model does NOT convert a hold into a
+    ship — the hold is a deliberate quality gate, not a reasoning gap.)
+
 ## Gotchas (each is a rule + the why it cost to learn)
 - **Correlate the energy envelope, never dialog.** Subtitle-style shifters (Sushi.Net etc.)
   match dialog, which differs between dub and original → they silently no-op (output = copy).

@@ -24,6 +24,17 @@ They compose into one pipeline: **`dub-sync` (audio) → `subtitle-th` (subs) �
   character→gender map, then verify every gendered token against the actual speaker — and prove it
   with a validator before muxing.
 
+## Model & effort guidance (baked into the SKILL.md files)
+
+Both skills carry an explicit, field-tested policy for *which model and reasoning effort each step
+should use* — because the wrong choice is expensive in non-obvious ways: a top-tier model on a
+mechanical step, or high effort on a step that doesn't reason, costs multiples for no quality gain
+and can even introduce new failure modes (a self-refusal on translation, a verify pass that edits
+one cue at a time and burns ~4× the tokens). The short version baked into each `SKILL.md`: **stay on
+one mid-tier model; make *reasoning effort* the lever, not the model tier; spend that effort only on
+the one step that actually reasons (the gender pass); and resolve value-judgments with a written
+numeric threshold rather than a bigger model.**
+
 ## Install
 
 Drop each folder into your Claude Code skills directory:
@@ -44,7 +55,7 @@ dub-sync/
   scripts/  dubsync.py  dense_verify.py  robust_offset.py  gap_scan.py  fill_gap.py
 subtitle-th/
   SKILL.md
-  scripts/  find_gendered.py  validate_srt.py  mux_subs.py
+  scripts/  find_gendered.py  apply_gender_fixes.py  validate_srt.py  mux_subs.py
   references/thai-gender-guide.md
   evals/evals.json
 ```
