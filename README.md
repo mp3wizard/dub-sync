@@ -56,6 +56,7 @@ folder of standalone CLIs. Requirements: `ffmpeg` + `ffprobe` on PATH, and `pyth
 ## Layout
 
 ```
+HANDOFF.md    # field notes: failure modes + fixes from a full-season batch run
 dub-sync/
   SKILL.md
   scripts/  dubsync.py  dense_verify.py  robust_offset.py  gap_scan.py  fill_gap.py
@@ -65,6 +66,15 @@ subtitle-th/
   references/thai-gender-guide.md
   evals/evals.json
 ```
+
+## Field notes
+
+`HANDOFF.md` is a distilled set of lessons from running both skills across a full television season
+and into a second one — the non-obvious failure modes (silent dropped audio tracks, agents that
+report success without writing a file, weak-correlation rips, Windows path/permission traps, a
+verify pass whose token cost blew up ~4× from editing one cue at a time) and the fixes now baked
+into the skills, including the per-step model/effort policy and the automatic ship/hold decision for
+imperfect audio. Read it before a large batch run.
 
 ## Scope notes
 

@@ -99,9 +99,16 @@ def main():
     if a.out:
         print("\n[build] conforming dub audio + placing per staircase ...",flush=True)
         conf=1.0/F
-        raw=subprocess.run(["ffmpeg","-v","error","-i",a.thai,"-map",a.thai_stream,
-            "-af",f"asetrate={int(48000*conf)},aresample=48000","-ac","2","-ar","48000",
-            "-f","s16le","-"],capture_output=True).stdout
+        # aresample=48000 first: asetrate reinterprets whatever rate is already on the
+        # stream, so without normalizing to 48000 up front, a source natively at e.g.
+        # 44100Hz gets its rate relabeled from the WRONG base — silently pitching/
+        # speeding the whole track by (native_rate/48000) instead of by `conf`.
+        proc=subprocess.run(["ffmpeg","-v","error","-i",a.thai,"-map",a.thai_stream,
+            "-af",f"aresample=48000,asetrate={int(48000*conf)},aresample=48000","-ac","2","-ar","48000",
+            "-f","s16le","-"],capture_output=True)
+        if proc.returncode!=0:
+            sys.exit(f"ffmpeg failed extracting/conforming dub audio for --out build:\n{proc.stderr.decode(errors='replace')}")
+        raw=proc.stdout
         c=np.frombuffer(raw,dtype=np.int16).reshape(-1,2)
         out=np.zeros((int(len(eng)/fps_env*48000),2),np.int16)
         for s0,s1,o in segs:
