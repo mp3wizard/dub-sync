@@ -87,7 +87,15 @@ with `AskUserQuestion` (one question each; offer any paths already mentioned as 
 
 **1. Match the pair** by episode number, not filename (naming differs between rips).
 **2. Probe both** (`ffprobe … r_frame_rate,duration`) — confirm same episode (durations
-   consistent after the fps ratio) and see the fps mismatch.
+   consistent after the fps ratio) and see the fps mismatch. **Confirm the two files are the
+   SAME episode before you translate/build** — a mislabeled dub source that is actually a
+   *different* program wastes the whole downstream translation. Duration is a cheap smell test
+   (a genuine pair conforms to within ~1–2s; a wrong file seen 13s off), but not conclusive on
+   its own. The conclusive check is a **same-timestamp frame compare**:
+   `ffmpeg -ss <mid> -i ORIGINAL -frames:v 1 a.jpg` and the same for the dub → eyeball both.
+   **Metadata is NOT a discriminator** — a whole season's dub rips all carried the same
+   `title=www.nanamovies.com` / `encoder=…RapidVideo.com` tags, yet only one file was the wrong
+   program; the tag proves nothing, the frame does.
 **3. Dry run** `--report-only` on ONE episode → expect PASS and a near-flat residual profile.
    Residual high *everywhere* (not just gaps) ⇒ wrong fps (pass `--src/--dst-fps`) or not the
    same cut. Verdict `CHECK`/`OK` with few chunks ⇒ loud mix, lower `--silence-db`.
@@ -223,6 +231,14 @@ involved is *reading the verdicts above and deciding what to do* — and that de
 - **Verify against the SAME reference file the build used** (the `--eng` source release), not a
   different release of the episode. `dense_verify` cross-correlates envelopes; comparing the dub
   against a *different* cut of the same episode invents misalignment that isn't there.
+- **Unfixable-by-any-`--silence-db` CHECK with near-zero correlation *everywhere* = wrong source
+  file, not weak M&E.** Weak M&E (see *Hard episodes*) is the *same* episode correlating poorly;
+  it still shows a recoverable gentle staircase and some strong-corr windows. A dub source that is
+  actually a *different program* gives chaotic residuals (±90s), correlation ~0 across the whole
+  timeline, and no `--silence-db` value (`-25…-40`) or `--search` widening helps at all. Don't
+  keep tuning parameters — frame-compare the two inputs at the same timestamp (Runbook step 2).
+  Once: a season's stored "Thai dub" for one episode was a different show entirely (only found
+  because dubsync CHECKed unfixably and a frame grab showed an unrelated scene).
 - **`robust_offset.py --out` used to crash on a segment placed past the buffer end** (`ValueError:
   could not broadcast input array … into shape (0,2)`) — hit on almost every weak-M&E episode.
   Fixed to clamp the destination/source slice. If you see that traceback, update the script.

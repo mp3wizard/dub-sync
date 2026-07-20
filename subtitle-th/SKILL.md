@@ -112,22 +112,39 @@ If a workflow engine is available, the robust shape is: `split (script) → tran
 parallel (Sonnet/medium, each self-verifying its count) → join (script, asserts total) → gender
 pass → validate`.
 
-### When a chunk keeps getting refused by the content filter
+### When a chunk keeps getting refused
 
-Occasionally one chunk fails not with a translation error but a **Usage-Policy API refusal** — and
-it repeats across reworded prompts *and* different models (so it is not your wording or the model;
-it is a content classifier reacting to the source dialogue). Seen with a cold-open scene of a
-fictional bioterror plot ("80% kill rate," "the virus is airborne") — ordinary broadcast-TV
-thriller lines, but they trip a CBRN classifier regardless of framing. Don't burn retries on the
-whole chunk:
+Two distinct refusal types show up here — **they have different causes and different remedies, so
+tell them apart before reacting.**
 
-- **Bisect to localize the trigger.** Split the chunk into the few cues that carry the flagged
+**Type 1 — content-classifier trip on specific lines.** One chunk fails with a **Usage-Policy API
+refusal** that repeats across reworded prompts *and* different models (so it is not your wording or
+the model tier; a content classifier is reacting to the *source dialogue*). Seen with a cold-open
+bioterror scene ("80% kill rate," "the virus is airborne") — ordinary broadcast-TV thriller lines
+that trip a CBRN classifier regardless of framing. The flagged content is localized to a few cues.
+
+- **Bisect to localize the trigger.** Split the chunk into the few cues carrying the flagged
   content vs. the rest; the surrounding ordinary dialogue then translates fine on the normal path.
 - **Handle the tiny trigger span directly, not via a dispatched subagent.** Translating a handful
-  of dialogue lines from an already-aired, publicly-broadcast episode is legitimate,
-  mechanical localization — the orchestrating assistant can do those few cues inline, then rejoin.
+  of dialogue lines from an already-aired, publicly-broadcast episode is legitimate, mechanical
+  localization — the orchestrating assistant can do those few cues inline, then rejoin.
 - Keep the split/rejoin deterministic (same block-count assert) so the repaired chunk slots back in
   with the exact original cue count.
+
+**Type 2 — whole-work copyright decline.** The agent declines an *entire* chunk of perfectly
+ordinary dialogue, reasoning that translating it "reproduces a derivative of a copyrighted script."
+No single line is the trigger, so **bisecting does not help** — every sub-chunk gets the same
+refusal. This is a model-side caution about the *whole work*, not a classifier hit on content.
+
+- **Clear it with a truthful ownership / personal-use framing line in the prompt**, not by
+  rewording the task or splitting further. What worked: state that the user owns this episode, is
+  producing a personal Thai track for their own media library (e.g. Plex), it is not for
+  redistribution, and the same localization has already been done for the prior episodes of the
+  season. That framing must be *true* — it is legitimate personal localization, consistent with
+  this skill's own stance (Type 1 above already treats aired-episode localization as legitimate).
+- Seen at the **default** path (Sonnet/medium, general-purpose subagents), independent of the
+  `high`-effort self-refusal that the translate-step table warns about — so it is a separate
+  failure, not the same one. Adding the framing line up front on every chunk prompt prevents it.
 
 ## 3. Gender-verify (the crux)
 
@@ -225,6 +242,24 @@ For Plex to pick the Thai subtitle automatically, two things matter:
 - **A single stray Thai character in a timestamp** (e.g. a combining `่` or a mistyped digit)
   makes that cue unparseable and can shift everything after it. `validate_srt.py` pinpoints it.
 - **Duplicate indices / lost cues** happen when merging or hand-editing. Validate before muxing.
+- **A source cue can legitimately contain an internal blank line.** One EN `.srt` cue held
+  `What?` ⏎⏎ `It's about my shoulder.` as a *single* cue (a `\n\n\n` inside one block). The
+  block-splitter `re.split(r"\n\s*\n", ...)` reads that internal blank as a cue boundary → the
+  cue splits in two, and the phantom half's text gets dropped or mis-attributed downstream (it
+  vanished during the gender-fix apply). The tell is `validate_srt.py --compare` flagging an
+  **off-by-one** vs the source. Fix: grep the **source** for the internal-blank cue and collapse
+  its internal `\n\n+` to a single `\n` *before* chunking, so every real cue is one block.
+- **Chunk rejoin must insert the blank separator explicitly.** Plain `cat chunk1 chunk2 …` fuses
+  the last cue of one chunk into the first of the next whenever a chunk file lacks a trailing
+  blank line (seen: a season episode came out 830→825, five joins lost). Read each chunk,
+  `.strip()`, and join with an explicit `"\n\n"` — then let `validate_srt.py --compare` confirm
+  the total. (This is the deterministic-join rule from step 2, stated as the concrete failure.)
+- **A gendered marker that repeats in one cue with the SAME target won't auto-apply.**
+  `apply_gender_fixes.py` refuses any `find` occurring ≠1 time (ambiguity guard), so a cue like
+  `ฉัน…ฉัน` → `ผม…ผม` can't go through it — do those with a direct `str.replace()` on that cue.
+  Also order markers **longest-first** when building the fix list, because short markers are
+  substrings of long ones (`นะคะ` ⊃ `คะ`; `ครับผม` ⊃ `ครับ`+`ผม`) — flipping the short one first
+  corrupts the long one.
 - **`ผม` also means "hair" and `หนู` means "mouse"** — don't flip a gendered pronoun without
   reading the cue; `find_gendered.py` marks these `?`.
 - **Bracket/space paths on Windows** ("Season 03 [1080p]") break bash globbing; the Python muxer

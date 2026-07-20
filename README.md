@@ -17,12 +17,18 @@ They compose into one pipeline: **`dub-sync` (audio) → `subtitle-th` (subs) �
   so a single global offset never fits. dub-sync chops the dub at silences, aligns each chunk
   against the reference on the **energy envelope of shared music & effects** (which survives the
   language gap — dialog does not), and reassembles. Includes a rescue toolkit for weak-M&E rips
-  (`robust_offset`, `dense_verify`, `gap_scan`, `fill_gap`).
+  (`robust_offset`, `dense_verify`, `gap_scan`, `fill_gap`). It also distinguishes a genuinely
+  weak-M&E episode from a **mislabeled dub source that is actually a different program** — an
+  unfixable CHECK with near-zero correlation *everywhere* is a provenance problem, caught by a
+  same-timestamp frame compare before a build is wasted (metadata tags don't discriminate).
 - **subtitle-th:** English "I" and its sentence-enders carry no gender; Thai first-person pronouns
   and polite particles do. A naive EN→TH translation guesses the speaker's gender and gets it wrong
   on a large fraction of a woman's lines. This skill's reason to exist is to get that right — build a
   character→gender map, then verify every gendered token against the actual speaker — and prove it
-  with a validator before muxing.
+  with a validator before muxing. It is also hardened against real-world SRT quirks (a source cue
+  carrying an internal blank line; chunk-rejoin separator loss that silently fuses cues) and against
+  the two distinct chunk-refusal modes — a content-classifier trip on specific lines vs a whole-work
+  copyright decline — each with its own remedy.
 
 ## Model & effort guidance (baked into the SKILL.md files)
 
