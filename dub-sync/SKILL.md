@@ -142,6 +142,19 @@ to manual Audacity — run the toolkit in `scripts/`:
    of drift. Over a 22-episode batch, treating every CHECK as broken means re-processing ~15 fine
    episodes for nothing. Accept `PASS` and `CHECK-with-no-bad`; rescue only a true `FAIL`.
 
+   **When `dense_verify` returns CHECK, reach for `vad_verify.py` before giving up.** Correlation
+   needs shared M&E; speech ONSETS don't. `vad_verify.py --eng ORIG --built OUT.mkv` runs silero VAD
+   (via whisper.cpp) on both tracks and asks the more direct question — *does someone start talking
+   at the same moment in both?* — then reports a median offset per window. On the episode that
+   forced this tool into existence, `dense_verify` managed 77% coverage and said CHECK while
+   `vad_verify` paired **100%** of reference onsets and returned a clean PASS; re-run against that
+   episode's known-broken earlier build, it correctly returned FAIL on two windows. Same verdict
+   vocabulary (PASS / CHECK / FAIL), exit 1 on FAIL so it can gate a batch.
+
+   Needs `whisper-vad-speech-segments` (`brew install whisper-cpp`) plus a silero VAD model
+   (`ggml-silero-v5.1.2.bin` from `https://huggingface.co/ggml-org/whisper-vad`, ~885KB) placed
+   beside the script or passed with `--vad-model`.
+
    **A whole batch reading CHECK/low-corr usually means provenance, not per-episode breakage.** In
    one season the pilot episode (a 352p broadcast TV rip) hit ~100% coverage and 0.9+ correlation,
    while every other episode (1080p, from a different — likely OTT/streaming — dub source) sat at
@@ -252,6 +265,17 @@ involved is *reading the verdicts above and deciding what to do* — and that de
   verification*, not if it merely errored once.
 - **Prove sync by re-correlating** the built track against the reference; near-zero residual on
   real content (not at gaps) is the confirmation.
+- **Never pass `-ug`/`--use-gpu` to `whisper-vad-speech-segments`.** The Metal backend aborts on
+  the silero VAD graph (`pre-allocated tensor (leaf_0) in a buffer (MTL0) that cannot run the
+  operation`) — a ggml bug, not an Apple-silicon limitation. CPU runs the VAD at ~140x realtime
+  (a 44-min track in ~6s), so there is nothing to gain from the GPU path anyway. `vad_verify.py`
+  deliberately omits the flag.
+- **A `vad_verify` offset magnitude is a LOWER BOUND, not the true drift.** Onsets are paired
+  nearest-first; once the dub is off by more than about half the gap between consecutive lines, an
+  onset pairs with the *neighbouring* utterance and the measured offset collapses toward zero. On
+  one known-broken build `dense_verify` saw ±3–6s where `vad_verify` reported −0.83s for the same
+  region. Trust the FAIL verdict; size the damage with `dense_verify`/`robust_offset`. The
+  `ambiguous` count in the summary says how often the pairing was a close call.
 
 ## Related
 Pairs with the **`subtitle-th`** skill (translate + gender-check + mux subtitle tracks) to produce a

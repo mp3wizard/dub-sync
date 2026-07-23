@@ -59,7 +59,7 @@ folder of standalone CLIs. Requirements: `ffmpeg` + `ffprobe` on PATH, and `pyth
 HANDOFF.md    # field notes: failure modes + fixes from a full-season batch run
 dub-sync/
   SKILL.md
-  scripts/  dubsync.py  dense_verify.py  robust_offset.py  gap_scan.py  fill_gap.py
+  scripts/  dubsync.py  dense_verify.py  vad_verify.py  robust_offset.py  gap_scan.py  fill_gap.py
 subtitle-th/
   SKILL.md
   scripts/  find_gendered.py  apply_gender_fixes.py  validate_srt.py  mux_subs.py
